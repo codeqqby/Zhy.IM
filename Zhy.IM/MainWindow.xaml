@@ -1,0 +1,13 @@
+﻿<local:BaseWindow x:Class="Zhy.IM.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Zhy.IM.Window"
+        Title="Window1" Height="500" Width="300"
+                  Loaded="BaseWindow_Loaded_1">
+    <Grid>
+        <TextBox Name="txt" Margin="0,248,0,191"></TextBox>
+        <Button Content="连接" Click="Button_Click_2" Margin="0,350,0,67"></Button>
+        <ProgressBar Name="pbProgress" Margin="0,284,0,171"></ProgressBar>
+        <TextBlock Name="txtInfo" TextAlignment="Center" Margin="0,313,0,141"></TextBlock>
+    </Grid>
+</local:BaseWindow>
