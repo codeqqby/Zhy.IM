@@ -1,6 +1,8 @@
 ﻿using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
@@ -13,8 +15,10 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using System.Xml.Linq;
+using Zhy.IM.Controls;
 using Zhy.IM.Framework.Tcp;
-using Zhy.IM.Window;
+using Zhy.IM.Plugin.UserList;
 
 namespace Zhy.IM
 {
@@ -28,25 +32,27 @@ namespace Zhy.IM
             InitializeComponent();
         }
 
-        private void Button_Click_2(object sender, RoutedEventArgs e)
+        private void BaseWindow_Loaded_1(object sender, RoutedEventArgs e)
         {
-            if (string.IsNullOrEmpty(txt.Text))
-            {
-                MessageBox.Show("IP地址不能为空");
-                return;
-            }
-            bool bln = TcpClient.CreateInstance().Connect(IPAddress.Parse(txt.Text), 8010);
+            string fileName = Process.GetCurrentProcess().MainModule.FileName;
+            fileName = System.IO.Path.GetFileName(fileName);
+            fileName = string.Format("{0}.config", fileName);
+            XDocument xml = XDocument.Load(fileName);
+            IEnumerable<XElement> nodes = xml.Root.Element("appSettings").Elements();
+            XElement node = nodes.SingleOrDefault(x => x.Attribute("key").Value == "serverip");
+            IPAddress ip = IPAddress.Parse(node.Attribute("value").Value);
+            node = nodes.SingleOrDefault(x => x.Attribute("key").Value == "port");
+            int port = int.Parse(node.Attribute("value").Value);
+            bool bln = TcpClient.CreateInstance().Connect(ip, port);
             if (!bln)
             {
                 MessageBox.Show("error");
-                return;
             }
-            (sender as Button).IsEnabled = false;
-        }
-
-        private void BaseWindow_Loaded_1(object sender, RoutedEventArgs e)
-        {
-
+            else
+            {
+                UserListPlugin plugin = new UserListPlugin();
+                this.mainGrid.Children.Add(plugin);
+            }
         }
 
 

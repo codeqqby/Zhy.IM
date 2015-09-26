@@ -29,7 +29,8 @@ namespace Zhy.IM.Plugin.UserList
         {
             if (e.ClickCount == 2)
             {
-                MessageBox.Show("aaa");
+                ChatWindow chat = new ChatWindow();
+                chat.Show();
             }
         }
     }
