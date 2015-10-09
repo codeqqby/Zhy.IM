@@ -26,6 +26,7 @@
         </im:ZhyTextBox>
         <TextBlock Name="txtPortMsg" Height="23" Grid.Row="1" Grid.Column="1" Foreground="Red"
                    HorizontalAlignment="Left" VerticalAlignment="Bottom"></TextBlock>
-        <im:ZhyButton Height="23" Width="72" Content="启动服务" Grid.Row="2" Grid.ColumnSpan="2" Click="Button_Click_1"></im:ZhyButton>
+        <im:ZhyButton Height="23" Width="72" Content="启动服务" Grid.Row="2" Grid.ColumnSpan="2" 
+                      IsDefault="True" Click="Button_Click_1"></im:ZhyButton>
     </Grid>
 </Window>

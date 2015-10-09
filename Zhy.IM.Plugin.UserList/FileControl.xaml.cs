@@ -21,39 +21,20 @@ namespace Zhy.IM.Plugin.UserList
     /// </summary>
     public partial class FileControl : UserControl
     {
-        private string _fileName;
+        private TcpFile _tcpFile;
 
         public FileControl(string fileName)
         {
             InitializeComponent();
 
-            this._fileName = fileName;
-            this.txtFileName.Text = _fileName;
+            this.txtFileName.Text = System.IO.Path.GetFileName(fileName);
+            this._tcpFile = new TcpFile() { FileName = fileName };
+            this.DataContext = this._tcpFile;
         }
 
         private void UserControl_Loaded_1(object sender, RoutedEventArgs e)
         {
-            TcpClient.CreateInstance().PrintSendingFileInfo += PrintSendingFileInfo;
-            TcpClient.CreateInstance().PrintSendingProgress += PrintSendingProgress;
-            TcpClient.CreateInstance().PrintSendedResult += PrintSendedResult;
-            TcpClient.CreateInstance().SendFile(this._fileName);
-        }
-
-        private void PrintSendingFileInfo(string fileName, double length, double convertedLength, Capacity flag)
-        {
-            this.txtProgress.Dispatcher.Invoke(() => this.txtProgress.Text = string.Format("({0}{1})", convertedLength.ToString("F2"), flag.ToString()));
-            this.pbProgress.Dispatcher.Invoke(() => this.pbProgress.Maximum = length);
-        }
-
-        private void PrintSendingProgress(string fileName, double convertedLength, double currentLength, double convertedCurrentLength, Capacity flag)
-        {
-            this.txtProgress.Dispatcher.Invoke(() => this.txtProgress.Text = string.Format("({0}/{1}{2})", convertedLength.ToString("F2"), convertedCurrentLength.ToString("F2"), flag.ToString()));
-            this.pbProgress.Dispatcher.Invoke(() => this.pbProgress.Value = currentLength);
-        }
-
-        private void PrintSendedResult(string result)
-        {
-            this.txtProgress.Dispatcher.Invoke(() => this.txtProgress.Text = result);
+            TcpClient.CreateInstance().SendFile(this._tcpFile);
         }
     }
 }

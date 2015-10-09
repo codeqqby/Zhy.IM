@@ -48,6 +48,7 @@
     <Compile Include="Tcp\Client.cs" />
     <Compile Include="Tcp\TcpClient.cs" />
     <Compile Include="Tcp\TcpCommand.cs" />
+    <Compile Include="Tcp\TcpFile.cs" />
     <Compile Include="Tcp\TcpServer.cs" />
     <Compile Include="Udp\UdpClient.cs" />
     <Compile Include="Udp\UdpCommand.cs" />

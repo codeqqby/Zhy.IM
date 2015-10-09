@@ -20,7 +20,9 @@
                     <RowDefinition Height="1*"></RowDefinition>
                 </Grid.RowDefinitions>
             </Grid>
-            <StackPanel Name="spRight"></StackPanel>
+            <ScrollViewer Name="sv" Grid.Column="1" Visibility="Collapsed">
+                <StackPanel Name="spRight"></StackPanel>
+            </ScrollViewer>
         </Grid>
     </Grid>
 </im:BaseWindow>

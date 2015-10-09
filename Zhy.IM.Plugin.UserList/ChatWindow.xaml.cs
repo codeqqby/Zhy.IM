@@ -32,7 +32,7 @@ namespace Zhy.IM.Plugin.UserList
         {
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
-                string fileName = ((Array)e.Data.GetData(DataFormats.FileDrop)).GetValue(0).ToString();
+                //string fileName = ((Array)e.Data.GetData(DataFormats.FileDrop)).GetValue(0).ToString();
                 //OpenFileDialog ofd = new OpenFileDialog();
                 
                 //if (!ofd.ShowDialog().Value)
@@ -40,6 +40,7 @@ namespace Zhy.IM.Plugin.UserList
                 //    btn.IsEnabled = true;
                 //    return;
                 //}
+                this.sv.Visibility = Visibility.Visible;
                 SendFile(((Array)e.Data.GetData(DataFormats.FileDrop)).Cast<string>().ToArray());
             }
         }
@@ -51,8 +52,6 @@ namespace Zhy.IM.Plugin.UserList
                 FileControl fc = new FileControl(files[i]);
                 this.spRight.Children.Add(fc);
             }
-
-            this.spRight.Visibility = Visibility.Collapsed;
         }
 
 

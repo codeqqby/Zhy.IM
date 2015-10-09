@@ -36,7 +36,7 @@ namespace Zhy.IM.Framework.Tcp
         {
             Socket socket = this._socket.EndAccept(state);
             Client client = new Client(socket);
-            client.StartReceive();
+            client.StartReceiveData();
             Receive();
         }
     }

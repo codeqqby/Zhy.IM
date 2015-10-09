@@ -1,7 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -16,38 +14,100 @@ namespace Zhy.IM.Framework.Tcp
     {
         private Socket _socket;
         private byte[] _buffer;
+        private byte[] _tempBuffer;
+        private object _lock = new object();
+        private int _offset = 0;
 
         public Client(Socket socket)
         {
             this._socket = socket;
-            this._buffer = new byte[1024];
+            this._buffer = new byte[1024 * 1024 * 20];
+            this._tempBuffer = new byte[1024 * 1024 * 20];
+        }
+
+        public void StartReceiveData()
+        {
+            ReceiveData();
+            HandleData();
+        }
+
+        private void ReceiveData()
+        {
+            byte[] buffer = new byte[1024];
+            int len = 0;
+            Task.Factory.StartNew(() =>
+                {
+                    while (true)
+                    {
+                        if (_offset < 0)
+                        {
+                            break;
+                        }
+                        try
+                        {
+                            len = this._socket.Receive(buffer);
+                            lock (this._lock)
+                            {
+                                Array.Copy(buffer, 0, this._buffer, this._offset, len);
+                                this._offset += len;
+                            }
+                        }
+                        catch { }
+                    }
+                });
         }
 
         /// <summary>
         /// 接收来自客户端的数据
         /// </summary>
-        public void StartReceive()
+        private void HandleData()
         {
-            int count = 0;
+            byte[] buffer = new byte[1024];
             string fileName = string.Empty;
             bool closed = false;
-            ThreadPool.QueueUserWorkItem((object o) =>
+            Task.Factory.StartNew(() =>
                 {
                     while (true)
                     {
                         try
                         {
-                            count = this._socket.Receive(this._buffer);
-                            switch ((FileCommand)this._buffer[0])
+                            lock (this._lock)
+                            {
+                                if (_offset == 0)
+                                {
+                                    Thread.Sleep(200);
+                                    continue;
+                                }
+                                if (this._offset < buffer.Length)
+                                {
+                                    Array.Copy(this._buffer, 0, buffer, 0, this._offset);
+                                    Array.Copy(this._buffer, this._offset, this._tempBuffer, 0, this._buffer.Length - this._offset);
+                                    this._tempBuffer.CopyTo(this._buffer, 0);
+                                    this._offset = 0;
+                                }
+                                else
+                                {
+                                    Array.Copy(this._buffer, 0, buffer, 0, buffer.Length);
+                                    Array.Copy(this._buffer, buffer.Length, this._tempBuffer, 0, this._buffer.Length - buffer.Length);
+                                    this._tempBuffer.CopyTo(this._buffer, 0);
+                                    this._offset -= buffer.Length;
+                                }
+                                if (this._offset < 0)
+                                {
+                                    Console.WriteLine("int");
+                                    break;
+                                }
+                            }
+                            switch ((FileCommand)buffer[0])
                             {
                                 case FileCommand.BeginSendFile_Req:
-                                    fileName = CreateFile();
+                                    fileName = CreateFile(buffer);
                                     break;
                                 case FileCommand.SendFile_Req:
-                                    ReceiveFile(fileName);
+                                    ReceiveFile(buffer, fileName);
                                     break;
                                 case FileCommand.EndSendFile_Req:
-                                    ReceiveComplete(fileName);
+                                    ReceiveComplete(buffer, fileName);
                                     break;
                                 case FileCommand.Close:
                                     Close();
@@ -87,19 +147,17 @@ namespace Zhy.IM.Framework.Tcp
         /// 新建文件
         /// </summary>
         /// <returns></returns>
-        private string CreateFile()
+        private string CreateFile(byte[] buffer)
         {
-            byte[] buffer = new byte[4];
-            Array.Copy(this._buffer, 1, buffer, 0, buffer.Length);
-            int len = BitConverter.ToInt32(buffer, 0);
-            if (this._buffer[5 + len] != Checkout.CreateInstance().XOR(this._buffer, 5 + len))
+            byte[] tempBuffer = new byte[4];
+            Array.Copy(buffer, 1, tempBuffer, 0, tempBuffer.Length);
+            int len = BitConverter.ToInt32(tempBuffer, 0);
+            if (buffer[5 + len] != Checkout.CreateInstance().XOR(buffer, 5 + len))
             {
                 //发送指令让客户端重发
                 return string.Empty;
             }
-            buffer = new byte[len];
-            Array.Copy(this._buffer, 5, buffer, 0, buffer.Length);
-            string fileName = Encoding.UTF8.GetString(buffer);
+            string fileName = Encoding.UTF8.GetString(buffer, 5, len);
             if (!File.Exists(fileName))
             {
                 File.Create(fileName).Close();
@@ -112,20 +170,22 @@ namespace Zhy.IM.Framework.Tcp
         /// 接收文件
         /// </summary>
         /// <param name="fileName"></param>
-        private void ReceiveFile(string fileName)
+        private void ReceiveFile(byte[] buffer, string fname)
         {
-            byte[] buffer = new byte[4];
-            Array.Copy(this._buffer, 1, buffer, 0, buffer.Length);
-            int len = BitConverter.ToInt32(buffer, 0);
-            if (this._buffer[5 + len] != Checkout.CreateInstance().XOR(this._buffer, 5 + len))
+            byte[] tempBuffer = new byte[4];
+            Array.Copy(buffer, 1, tempBuffer, 0, tempBuffer.Length);
+            int nameLen = BitConverter.ToInt32(tempBuffer, 0);
+            Array.Copy(buffer, 5 + nameLen, tempBuffer, 0, tempBuffer.Length);
+            int contentLen = BitConverter.ToInt32(tempBuffer, 0);
+            if (buffer[9 + nameLen + contentLen] != Checkout.CreateInstance().XOR(buffer, 9 + nameLen + contentLen))
             {
+                Console.WriteLine("aaaaaaa");
                 //发送指令让客户端重发
             }
-            buffer = new byte[len];
-            Array.Copy(this._buffer, 5, buffer, 0, buffer.Length);
+            string fileName = Encoding.UTF8.GetString(buffer, 5, nameLen);
             using (FileStream fs = new FileStream(fileName, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
             {
-                fs.Write(buffer, 0, buffer.Length);
+                fs.Write(buffer, 9 + nameLen, contentLen);
             }
             SendData(FileCommand.SendFile_Resp);
         }
@@ -134,18 +194,18 @@ namespace Zhy.IM.Framework.Tcp
         /// 文件接收完成
         /// </summary>
         /// <param name="fileName"></param>
-        private void ReceiveComplete(string fileName)
+        private void ReceiveComplete(byte[] buffer,string fileName)
         {
-            byte[] buffer = new byte[8];
-            Array.Copy(this._buffer, 1, buffer, 0, buffer.Length);
-            long len = BitConverter.ToInt64(buffer, 0);
-            if (this._buffer[9] != Checkout.CreateInstance().XOR(this._buffer, 9))
+            byte[] tempBuffer = new byte[8];
+            Array.Copy(buffer, 1, tempBuffer, 0, tempBuffer.Length);
+            long len = BitConverter.ToInt64(tempBuffer, 0);
+            if (buffer[9] != Checkout.CreateInstance().XOR(buffer, 9))
             {
                 //发送指令让客户端重发
             }
             FileInfo info = new FileInfo(fileName);
-            this._buffer[0] = len == info.Length ? (byte)FileCommand.EndSendFileSuccess_Resp : (byte)FileCommand.EndSendFileFailed_Resp;
-            this._socket.Send(this._buffer, 1, SocketFlags.None);
+            buffer[0] = len == info.Length ? (byte)FileCommand.EndSendFileSuccess_Resp : (byte)FileCommand.EndSendFileFailed_Resp;
+            this._socket.Send(buffer, 1, SocketFlags.None);
         }
 
         /// <summary>
@@ -154,8 +214,7 @@ namespace Zhy.IM.Framework.Tcp
         /// <param name="length"></param>
         private void SendData(FileCommand command)
         {
-            this._buffer[0] = (byte)command;
-            this._socket.Send(this._buffer, 1, SocketFlags.None);
+            this._socket.Send(new byte[] { (byte)command }, 1, SocketFlags.None);
         }
     }
 }

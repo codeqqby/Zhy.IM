@@ -20,12 +20,6 @@ namespace Zhy.IM.Framework.Tcp
         private static readonly object locker = new object();
         private Socket _socket;
         private byte[] _buffer;
-        public delegate void PrintSendingFileInfoEventHandler(string fileName, double length, double convertedLength, Capacity flag);
-        public PrintSendingFileInfoEventHandler PrintSendingFileInfo;
-        public delegate void PrintSendingProgressEventHandler(string fileName, double convertedLength, double currentLength, double convertedCurrentLength, Capacity flag);
-        public PrintSendingProgressEventHandler PrintSendingProgress;
-        public delegate void PrintSendedResultEventHandler(string result);
-        public PrintSendedResultEventHandler PrintSendedResult;
 
         private TcpClient()
         {
@@ -79,17 +73,14 @@ namespace Zhy.IM.Framework.Tcp
             }
         }
 
-        private bool ReceiveComplete()
+        private bool ReceiveComplete(TcpFile file)
         {
             try
             {
                 this._socket.Receive(this._buffer);
                 this._socket.ReceiveTimeout = 30000;
                 bool result = (FileCommand)this._buffer[0] == FileCommand.EndSendFileSuccess_Resp ? true : false;
-                if (this.PrintSendedResult != null)
-                {
-                    this.PrintSendedResult(result ? "发送成功" : "发送失败");
-                }
+                file.ProgressText = result ? "发送成功" : "发送失败";
                 return result;
             }
             catch
@@ -104,52 +95,55 @@ namespace Zhy.IM.Framework.Tcp
         /// 发送文件
         /// </summary>
         /// <param name="fileName"></param>
-        public void SendFile(string fileName)
+        public void SendFile(TcpFile file)
         {
             ThreadPool.QueueUserWorkItem((object o) =>
+            {
+                try
                 {
-                    try
+                    FileInfo info = new FileInfo(file.FileName);
+                    long len = info.Length;
+                    file.FileName = System.IO.Path.GetFileName(info.Name);
+                    FileCapacityInfo fileCapacity = GetFileCapacityInfo(len);
+                    file.ProgressMaximum=len;
+                    file.ProgressText = string.Format("({0}{1})", fileCapacity.Value.ToString("F2"), fileCapacity.Type.ToString());
+                    SendData(file.FileName);
+                    if (!Receive(FileCommand.BeginSendFile_Resp))
                     {
-                        FileInfo info = new FileInfo(fileName);
-                        long len = info.Length;
-                        string name = info.Name;
-                        CapacityInfo ci = GetCapacity(len);
-                        if (this.PrintSendingFileInfo != null)
-                        {
-                            this.PrintSendingFileInfo(name, len, ci.Value, ci.Flag);
-                        }
-                        SendData(name);
-                        if (!Receive(FileCommand.BeginSendFile_Resp))
-                        {
-                            return;
-                        }
-                        using (FileStream fs = new FileStream(fileName, FileMode.Open, FileAccess.Read, FileShare.Read))
-                        {
-                            long total = 0;
-                            int count = 0;
-                            double currentLength = 0;
-                            byte[] buffer = new byte[this._buffer.Length - 6];
-                            do
-                            {
-                                count = fs.Read(buffer, 0, buffer.Length);
-                                SendData(buffer, count);
-                                if (!Receive(FileCommand.SendFile_Resp))
-                                {
-                                    return;
-                                }
-                                total += count;
-                                if (this.PrintSendingProgress != null)
-                                {
-                                    currentLength = GetCurrentLength(total, ci.Flag);
-                                    this.PrintSendingProgress(name, ci.Value, total, currentLength, ci.Flag);
-                                }
-                            } while (total < len);
-                        }
-                        SendData(len);
-                        ReceiveComplete();
+                        return;
                     }
-                    catch { }
-                });
+
+                    byte[] name = Encoding.UTF8.GetBytes(file.FileName);
+                    byte[] nameLength = BitConverter.GetBytes(name.Length);
+                    using (FileStream fs = new FileStream(info.FullName, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    {
+                        long total = 0;
+                        int count = 0;
+                        double currentLength = 0;
+                        byte[] buffer = new byte[this._buffer.Length - 10 - name.Length];
+                        do
+                        {
+                            count = fs.Read(buffer, 0, buffer.Length);
+                            SendData(file.FileName,buffer, count);
+                            if (!Receive(FileCommand.SendFile_Resp))
+                            {
+                                Console.WriteLine("aaaabbb");
+                                return;
+                            }
+                            total += count;
+                            currentLength = GetCurrentLength(total, fileCapacity.Type);
+                            file.ProgressText = string.Format("({0}/{1}{2})", fileCapacity.Value.ToString("F2"), currentLength.ToString("F2"), fileCapacity.Type.ToString());
+                            file.ProgressValue = total;
+                        } while (total < len);
+                    }
+                    SendData(len);
+                    ReceiveComplete(file);
+                }
+                catch(Exception ex) 
+                {
+                    Console.WriteLine(ex.Message);
+                }
+            });
         }
 
         private void Send(int length)
@@ -178,14 +172,20 @@ namespace Zhy.IM.Framework.Tcp
         /// 发送文件的内容
         /// </summary>
         /// <param name="buffer"></param>
-        private void SendData(byte[] buffer, int length)
+        private void SendData( string fileName, byte[] buffer, int length)
         {
-            byte[] len = BitConverter.GetBytes(length);
             this._buffer[0] = (byte)FileCommand.SendFile_Req;
-            Array.Copy(len, 0, this._buffer, 1, 4);
-            Array.Copy(buffer, 0, this._buffer, 5, length);
-            this._buffer[5 + length] = Checkout.CreateInstance().XOR(this._buffer, 5 + length);
-            Send(6 + length);
+
+            byte[] name = Encoding.UTF8.GetBytes(fileName);
+            byte[] nameLength = BitConverter.GetBytes(name.Length);
+            Array.Copy(nameLength, 0, this._buffer, 1, 4);
+            Array.Copy(name, 0, this._buffer, 5, name.Length);
+
+            byte[] len = BitConverter.GetBytes(length);
+            Array.Copy(len, 0, this._buffer, 5 + name.Length, 4);
+            Array.Copy(buffer, 0, this._buffer, 9 + name.Length, length);
+            this._buffer[9 + name.Length + length] = Checkout.CreateInstance().XOR(this._buffer, 9 + name.Length + length);
+            Send(10 + name.Length + length);
         }
 
         /// <summary>
@@ -212,30 +212,30 @@ namespace Zhy.IM.Framework.Tcp
         /// </summary>
         /// <param name="length"></param>
         /// <returns></returns>
-        private CapacityInfo GetCapacity(long length)
+        private FileCapacityInfo GetFileCapacityInfo(long length)
         {
-            CapacityInfo info = new CapacityInfo();
+            FileCapacityInfo file = new FileCapacityInfo();
             if (length / GB >= 1)
             {
-                info.Flag = Capacity.GB;
-                info.Value = Math.Round(length * 1.0 / GB, 2);
+                file.Type = FileCapacityType.GB;
+                file.Value = Math.Round(length * 1.0 / GB, 2);
             }
             else if (length / MB >= 1)
             {
-                info.Flag = Capacity.MB;
-                info.Value = Math.Round(length * 1.0 / MB, 2);
+                file.Type = FileCapacityType.MB;
+                file.Value = Math.Round(length * 1.0 / MB, 2);
             }
             else if (length / KB >= 1)
             {
-                info.Flag = Capacity.KB;
-                info.Value = Math.Round(length * 1.0 / KB, 2);
+                file.Type = FileCapacityType.KB;
+                file.Value = Math.Round(length * 1.0 / KB, 2);
             }
             else
             {
-                info.Flag = Capacity.B;
-                info.Value = length;
+                file.Type = FileCapacityType.B;
+                file.Value = length;
             }
-            return info;
+            return file;
         }
 
         /// <summary>
@@ -244,18 +244,18 @@ namespace Zhy.IM.Framework.Tcp
         /// <param name="currentLength"></param>
         /// <param name="flag"></param>
         /// <returns></returns>
-        private double GetCurrentLength(long currentLength, Capacity flag)
+        private double GetCurrentLength(long currentLength, FileCapacityType type)
         {
             double result = 0;
-            switch (flag)
+            switch (type)
             {
-                case Capacity.GB:
+                case FileCapacityType.GB:
                     result = Math.Round(currentLength * 1.0 / GB, 2);
                     break;
-                case Capacity.MB:
+                case FileCapacityType.MB:
                     result = Math.Round(currentLength * 1.0 / MB, 2);
                     break;
-                case Capacity.KB:
+                case FileCapacityType.KB:
                     result = Math.Round(currentLength * 1.0 / KB, 2);
                     break;
                 default:
@@ -265,15 +265,28 @@ namespace Zhy.IM.Framework.Tcp
             return result;
         }
         #endregion
+
+        /// <summary>
+        /// 关闭连接
+        /// </summary>
+        private void Close()
+        {
+            try
+            {
+                this._socket.Shutdown(SocketShutdown.Both);
+                this._socket.Close();
+            }
+            catch { }
+        }
     }
 
-    class CapacityInfo
+    class FileCapacityInfo
     {
-        public Capacity Flag { get; set; }
+        public FileCapacityType Type { get; set; }
         public double Value { get; set; }
     }
 
-    public enum Capacity
+    public enum FileCapacityType
     {
         B,
         KB,
